@@ -1,47 +1,21 @@
 import { MikroORM, serialize } from '@mikro-orm/better-sqlite';
 
-import {
-  Entity,
-  EntityProperty,
-  ManyToOne,
-  Platform,
-  PrimaryKey,
-  Property, Ref,
-  Type,
-  ValidationError,
-} from '@mikro-orm/core';
+import { Entity, ManyToOne, PrimaryKey, Property, Ref, Type } from '@mikro-orm/core';
 
-function isNil<TValue>(value: TValue | null | undefined): value is null | undefined {
-  return value === null || value === undefined;
-}
 
 /** String in TS, Integer in DB **/
 export class IDStoredAsInteger extends Type<string, number> {
 
-  convertToDatabaseValue(value: string, platform: Platform): number {
-    if (isNil(value)) {
-      return null as any;
-    }
-    try {
-      return parseInt(value);
-    } catch {
-      throw ValidationError.invalidType(IDStoredAsInteger, value, 'JS');
-    }
+  convertToDatabaseValue(value: string): number {
+    return parseInt(value);
   }
 
-  convertToJSValue(value: number, platform: Platform): string {
-    if (!value && value !== 0) {
-      return null as any;
-    }
+  convertToJSValue(value: number): string {
     return `${value}`;
   }
 
-  getColumnType(prop: EntityProperty, platform: Platform) {
+  getColumnType() {
     return `integer`;
-  }
-
-  compareAsType(): string {
-    return 'number';
   }
 
 }
@@ -57,7 +31,7 @@ class User {
   email!: string;
 
   @ManyToOne(() => User, { nullable: true })
-  bestFriend!: Ref<User> | null;
+  bestFriend?: Ref<User>;
 
 }
 
@@ -65,21 +39,17 @@ let orm: MikroORM;
 
 beforeAll(async () => {
   orm = await MikroORM.init({
-    dbName: 'XXXX',
+    dbName: ':memory:',
     entities: [User],
   });
-  await orm.schema.refreshDatabase();
-});
-
-beforeEach(async () => {
-  await orm.schema.clearDatabase();
+  await orm.schema.createSchema();
 });
 
 afterAll(async () => {
   await orm.close(true);
 });
 
-it('should apply custom type when serializing primary key of non-populated relation with forceObject: true', async () => {
+it('should apply custom type when serializing primary key of non-populated relation', async () => {
   const totoUser = orm.em.create(User, {
     email: 'toto@test.com',
   });
@@ -88,18 +58,16 @@ it('should apply custom type when serializing primary key of non-populated relat
     bestFriend: totoUser,
   });
   await orm.em.flush();
-  orm.em.clear();
 
-  const userWithoutPopulatedBestFriend = await orm.em.findOneOrFail(User, { email: 'yolo@test.com' });
-  const serializedUserWithoutPopulatedBestFriend = serialize(userWithoutPopulatedBestFriend, { forceObject: true });
-  expect(typeof serializedUserWithoutPopulatedBestFriend.id).toBe('string');
-  expect(serializedUserWithoutPopulatedBestFriend.bestFriend).toBeDefined();
-  expect(typeof serializedUserWithoutPopulatedBestFriend.bestFriend!.id).toBe('string'); // fails, == number
+  const u1 = await orm.em.fork().findOneOrFail(User, { email: 'yolo@test.com' });
+  const dto1 = serialize(u1);
+  expect(typeof dto1.id).toBe('string');
+  expect(dto1.bestFriend).toBeDefined();
+  expect(typeof dto1.bestFriend).toBe('string');
 
-  const userWithPopulatedBestFriend = await orm.em.findOneOrFail(User, { email: 'yolo@test.com' }, { populate: ['bestFriend'] });
-  const serializedUserWithPopulatedBestFriend = serialize(userWithPopulatedBestFriend, { forceObject: true });
-  expect(typeof serializedUserWithPopulatedBestFriend.id).toBe('string');
-  expect(serializedUserWithPopulatedBestFriend.bestFriend).toBeDefined();
-  expect(typeof serializedUserWithPopulatedBestFriend.bestFriend!.id).toBe('string');
+  const u2 = await orm.em.fork().findOneOrFail(User, { email: 'yolo@test.com' }, { populate: ['bestFriend'] });
+  const dto2 = serialize(u2);
+  expect(typeof dto2.id).toBe('string');
+  expect(dto2.bestFriend).toBeDefined();
+  expect(typeof dto2.bestFriend).toBe('string');
 });
-
